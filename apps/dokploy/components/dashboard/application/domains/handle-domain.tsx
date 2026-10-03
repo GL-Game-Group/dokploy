@@ -78,6 +78,9 @@ export const domain = z
 		serviceName: z.string().optional(),
 		domainType: z.enum(["application", "compose", "preview"]).optional(),
 		middlewares: z.array(z.string()).optional(),
+		dnsProviderId: z.string().optional(),
+		autoDns: z.boolean().optional(),
+		zoneId: z.string().optional(),
 	})
 	.superRefine((input, ctx) => {
 		if (input.https && !input.certificateType) {
@@ -229,6 +232,9 @@ export const AddDomain = ({ id, type, domainId = "", children }: Props) => {
 			serviceName: undefined,
 			domainType: type,
 			middlewares: [],
+			dnsProviderId: undefined,
+			autoDns: false,
+			zoneId: undefined,
 		},
 		mode: "onChange",
 	});
@@ -238,7 +244,21 @@ export const AddDomain = ({ id, type, domainId = "", children }: Props) => {
 	const https = form.watch("https");
 	const domainType = form.watch("domainType");
 	const host = form.watch("host");
+	const dnsProviderId = form.watch("dnsProviderId");
+	const autoDns = form.watch("autoDns");
+	const zoneId = form.watch("zoneId");
 	const isTraefikMeDomain = host?.includes("sslip.io") || false;
+
+	const { data: dnsProviders } = api.dnsProvider.all.useQuery(undefined, {
+		enabled: isOpen,
+	});
+
+	const { data: dnsZones } = api.dnsProvider.listZones.useQuery(
+		{ dnsProviderId: dnsProviderId || "" },
+		{
+			enabled: isOpen && !!dnsProviderId,
+		},
+	);
 
 	useEffect(() => {
 		if (data) {
@@ -256,6 +276,9 @@ export const AddDomain = ({ id, type, domainId = "", children }: Props) => {
 				serviceName: data?.serviceName || undefined,
 				domainType: data?.domainType || type,
 				middlewares: data?.middlewares || [],
+				dnsProviderId: data?.dnsProviderId || undefined,
+				autoDns: data?.autoDns || false,
+				zoneId: data?.zoneId || undefined,
 			});
 		}
 
@@ -273,6 +296,9 @@ export const AddDomain = ({ id, type, domainId = "", children }: Props) => {
 				customCertResolver: undefined,
 				domainType: type,
 				middlewares: [],
+				dnsProviderId: undefined,
+				autoDns: false,
+				zoneId: undefined,
 			});
 		}
 	}, [form, data, isPending, domainId]);
@@ -847,6 +873,104 @@ export const AddDomain = ({ id, type, domainId = "", children }: Props) => {
 										)}
 									</>
 								)}
+
+								<FormField
+									control={form.control}
+									name="dnsProviderId"
+									render={({ field }) => (
+										<FormItem>
+											<FormLabel>DNS Provider</FormLabel>
+											<FormDescription>
+												Select a DNS provider to automatically manage DNS records for this domain
+											</FormDescription>
+											<Select
+												onValueChange={(value) => {
+													field.onChange(value);
+													form.setValue("zoneId", undefined);
+													form.setValue("autoDns", false);
+												}}
+												value={field.value || ""}
+											>
+												<FormControl>
+													<SelectTrigger>
+														<SelectValue placeholder="Select a DNS provider (optional)" />
+													</SelectTrigger>
+												</FormControl>
+												<SelectContent>
+													{dnsProviders?.map((provider) => (
+														<SelectItem
+															key={provider.dnsProviderId}
+															value={provider.dnsProviderId}
+														>
+															{provider.name} ({provider.providerType})
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+											<FormMessage />
+										</FormItem>
+									)}
+								/>
+
+								{dnsProviderId && dnsZones && dnsZones.length > 0 && (
+									<>
+										<FormField
+											control={form.control}
+											name="zoneId"
+											render={({ field }) => (
+												<FormItem>
+													<FormLabel>DNS Zone</FormLabel>
+													<FormDescription>
+														Select the DNS zone for this domain
+													</FormDescription>
+													<Select
+														onValueChange={field.onChange}
+														value={field.value || ""}
+													>
+														<FormControl>
+															<SelectTrigger>
+																<SelectValue placeholder="Select a zone" />
+															</SelectTrigger>
+														</FormControl>
+														<SelectContent>
+															{dnsZones.map((zone) => (
+																<SelectItem key={zone.id} value={zone.id}>
+																	{zone.name}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+													<FormMessage />
+												</FormItem>
+											)}
+										/>
+
+										{zoneId && (
+											<FormField
+												control={form.control}
+												name="autoDns"
+												render={({ field }) => (
+													<FormItem className="flex flex-row items-center justify-between p-3 border rounded-lg shadow-xs">
+														<div className="space-y-0.5">
+															<FormLabel>Auto DNS</FormLabel>
+															<FormDescription>
+																Automatically create and manage DNS records for this domain
+															</FormDescription>
+															<FormMessage />
+														</div>
+														<FormControl>
+															<Switch
+																checked={field.value}
+																onCheckedChange={field.onChange}
+															/>
+														</FormControl>
+													</FormItem>
+												)}
+											/>
+										)}
+									</>
+								)}
+
 								<FormField
 									control={form.control}
 									name="middlewares"

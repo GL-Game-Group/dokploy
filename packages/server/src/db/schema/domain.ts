@@ -14,6 +14,7 @@ import { z } from "zod";
 import { domain } from "../validations/domain";
 import { applications } from "./application";
 import { compose } from "./compose";
+import { dnsProvider } from "./dns-provider";
 import { previewDeployments } from "./preview-deployments";
 import { certificateType } from "./shared";
 
@@ -57,6 +58,12 @@ export const domains = pgTable("domain", {
 	middlewares: text("middlewares").array().default(sql`ARRAY[]::text[]`),
 	forwardAuthEnabled: boolean("forwardAuthEnabled").notNull().default(false),
 	enabled: boolean("enabled").notNull().default(true),
+	dnsProviderId: text("dnsProviderId").references(() => dnsProvider.dnsProviderId, {
+		onDelete: "set null",
+	}),
+	autoDns: boolean("autoDns").notNull().default(false),
+	dnsRecordId: text("dnsRecordId"),
+	zoneId: text("zoneId"),
 });
 
 export const domainsRelations = relations(domains, ({ one }) => ({
@@ -71,6 +78,10 @@ export const domainsRelations = relations(domains, ({ one }) => ({
 	previewDeployment: one(previewDeployments, {
 		fields: [domains.previewDeploymentId],
 		references: [previewDeployments.previewDeploymentId],
+	}),
+	dnsProvider: one(dnsProvider, {
+		fields: [domains.dnsProviderId],
+		references: [dnsProvider.dnsProviderId],
 	}),
 }));
 
@@ -97,6 +108,9 @@ export const apiCreateDomain = createSchema.pick({
 	stripPath: true,
 	middlewares: true,
 	forwardAuthEnabled: true,
+	dnsProviderId: true,
+	autoDns: true,
+	zoneId: true,
 });
 
 export const apiFindDomain = z.object({
@@ -131,5 +145,8 @@ export const apiUpdateDomain = createSchema
 		middlewares: true,
 		forwardAuthEnabled: true,
 		enabled: true,
+		dnsProviderId: true,
+		autoDns: true,
+		zoneId: true,
 	})
 	.merge(createSchema.pick({ domainId: true }).required());

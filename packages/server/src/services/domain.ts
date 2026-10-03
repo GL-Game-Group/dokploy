@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { db } from "@dokploy/server/db";
 import { getWebServerSettings } from "@dokploy/server/services/web-server-settings";
 import { generateRandomDomain } from "@dokploy/server/templates";
+import { getDnsClient } from "@dokploy/server/utils/dns";
 import { execAsyncRemote } from "@dokploy/server/utils/process/execAsync";
 import { manageDomain } from "@dokploy/server/utils/traefik/domain";
 import { getPublicIpWithFallback } from "@dokploy/server/wss/utils";
@@ -14,6 +15,7 @@ import type { z } from "zod";
 import { type apiCreateDomain, domains } from "../db/schema";
 import { findApplicationById } from "./application";
 import { detectCDNProvider } from "./cdn";
+import { findDnsProviderById } from "./dns-provider";
 import { findServerById } from "./server";
 
 export type Domain = typeof domains.$inferSelect;
@@ -39,6 +41,21 @@ export const createDomain = async (input: z.infer<typeof apiCreateDomain>) => {
 		if (domain.applicationId) {
 			const application = await findApplicationById(domain.applicationId);
 			await manageDomain(application, domain);
+		}
+
+		if (domain.autoDns && domain.dnsProviderId && domain.zoneId) {
+			const serverIps = await getServerIpCandidates(null);
+			const serverIp = serverIps[0];
+			if (serverIp) {
+				const dnsRecordId = await createAutoDnsRecord(domain, serverIp);
+				if (dnsRecordId) {
+					await tx
+						.update(domains)
+						.set({ dnsRecordId })
+						.where(eq(domains.domainId, domain.domainId));
+					domain.dnsRecordId = dnsRecordId;
+				}
+			}
 		}
 
 		return domain;
@@ -128,6 +145,8 @@ export const updateDomainById = async (
 	domainId: string,
 	domainData: Partial<Domain>,
 ) => {
+	const oldDomain = await findDomainById(domainId);
+	
 	const domain = await db
 		.update(domains)
 		.set({
@@ -137,11 +156,67 @@ export const updateDomainById = async (
 		.where(eq(domains.domainId, domainId))
 		.returning();
 
-	return domain[0];
+	const updatedDomain = domain[0];
+	
+	if (!updatedDomain) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message: "Error updating domain",
+		});
+	}
+
+	const hostChanged = oldDomain.host !== updatedDomain.host;
+	const autoDnsChanged = oldDomain.autoDns !== updatedDomain.autoDns;
+	
+	if (updatedDomain.autoDns && updatedDomain.dnsProviderId && updatedDomain.zoneId) {
+		if (hostChanged || (autoDnsChanged && !oldDomain.autoDns)) {
+			if (oldDomain.dnsRecordId && oldDomain.dnsProviderId && oldDomain.zoneId) {
+				await deleteAutoDnsRecord(
+					oldDomain.dnsProviderId,
+					oldDomain.zoneId,
+					oldDomain.dnsRecordId,
+				);
+			}
+			
+			const serverIps = await getServerIpCandidates(null);
+			const serverIp = serverIps[0];
+			if (serverIp) {
+				const dnsRecordId = await createAutoDnsRecord(updatedDomain, serverIp);
+				if (dnsRecordId) {
+					await db
+						.update(domains)
+						.set({ dnsRecordId })
+						.where(eq(domains.domainId, domainId));
+					updatedDomain.dnsRecordId = dnsRecordId;
+				}
+			}
+		}
+	} else if (oldDomain.dnsRecordId && oldDomain.dnsProviderId && oldDomain.zoneId) {
+		await deleteAutoDnsRecord(
+			oldDomain.dnsProviderId,
+			oldDomain.zoneId,
+			oldDomain.dnsRecordId,
+		);
+		await db
+			.update(domains)
+			.set({ dnsRecordId: null })
+			.where(eq(domains.domainId, domainId));
+	}
+
+	return updatedDomain;
 };
 
 export const removeDomainById = async (domainId: string) => {
-	await findDomainById(domainId);
+	const domain = await findDomainById(domainId);
+	
+	if (domain.autoDns && domain.dnsProviderId && domain.zoneId && domain.dnsRecordId) {
+		await deleteAutoDnsRecord(
+			domain.dnsProviderId,
+			domain.zoneId,
+			domain.dnsRecordId,
+		);
+	}
+	
 	const result = await db
 		.delete(domains)
 		.where(eq(domains.domainId, domainId))
@@ -152,6 +227,71 @@ export const removeDomainById = async (domainId: string) => {
 
 export const getDomainHost = (domain: Domain) => {
 	return `${domain.https ? "https" : "http"}://${domain.host}`;
+};
+
+const extractZoneFromHost = (host: string, zones: { id: string; name: string }[]) => {
+	const cleanHost = host.toLowerCase().replace(/\.$/, "");
+	const sortedZones = [...zones].sort((a, b) => b.name.length - a.name.length);
+	return sortedZones.find((zone) => cleanHost === zone.name || cleanHost.endsWith(`.${zone.name}`));
+};
+
+const extractRecordName = (host: string, zoneName: string) => {
+	const cleanHost = host.toLowerCase().replace(/\.$/, "");
+	if (cleanHost === zoneName) {
+		return "@";
+	}
+	return cleanHost.slice(0, -(zoneName.length + 1));
+};
+
+const createAutoDnsRecord = async (
+	domain: typeof domains.$inferSelect,
+	serverIp: string,
+) => {
+	if (!domain.dnsProviderId || !domain.autoDns || !domain.zoneId) {
+		return null;
+	}
+
+	const dnsProvider = await findDnsProviderById(domain.dnsProviderId);
+	const client = getDnsClient(dnsProvider.providerType);
+	const config = dnsProvider.config;
+
+	const zones = await client.listZones(config as any);
+	const zone = zones.find((z) => z.id === domain.zoneId);
+	if (!zone) {
+		console.error("Zone not found:", domain.zoneId);
+		return null;
+	}
+
+	const recordName = extractRecordName(domain.host, zone.name);
+	const recordType = isIP(serverIp) === 6 ? "AAAA" : "A";
+
+	try {
+		const result = await client.upsertRecord(config as any, {
+			zoneId: domain.zoneId,
+			type: recordType,
+			name: recordName,
+			content: serverIp,
+			ttl: 1,
+		});
+		return result.id;
+	} catch (error) {
+		console.error("Failed to create DNS record:", error);
+		return null;
+	}
+};
+
+const deleteAutoDnsRecord = async (
+	dnsProviderId: string,
+	zoneId: string,
+	dnsRecordId: string,
+) => {
+	try {
+		const dnsProvider = await findDnsProviderById(dnsProviderId);
+		const client = getDnsClient(dnsProvider.providerType);
+		await client.deleteRecord(dnsProvider.config as any, zoneId, dnsRecordId);
+	} catch (error) {
+		console.error("Failed to delete DNS record:", error);
+	}
 };
 
 const resolveDns4 = promisify(dns.resolve4);
