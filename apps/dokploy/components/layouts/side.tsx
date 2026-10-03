@@ -42,8 +42,10 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { TruncateTooltip } from "@/components/shared/truncate-tooltip";
+import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { Badge } from "@/components/ui/badge";
 import {
 	Breadcrumb,
@@ -533,6 +535,46 @@ function isActiveRoute(opts: {
 }
 
 /**
+ * Maps menu item titles to translation keys
+ */
+function getMenuItemTranslationKey(title: string): string {
+	const mapping: Record<string, string> = {
+		Home: "sidebar.home",
+		Projects: "sidebar.projects",
+		Overview: "sidebar.overview",
+		Monitoring: "sidebar.monitoring",
+		Schedules: "sidebar.schedules",
+		"Traefik File System": "sidebar.traefikFileSystem",
+		Docker: "sidebar.docker",
+		Requests: "sidebar.requests",
+		"Web Server": "sidebar.webServer",
+		Profile: "sidebar.profile",
+		Sessions: "sidebar.sessions",
+		"Remote Servers": "sidebar.remoteServers",
+		Deployments: "sidebar.deployments",
+		Users: "sidebar.users",
+		"Audit Logs": "sidebar.auditLogs",
+		"SSH Keys": "sidebar.sshKeys",
+		AI: "sidebar.ai",
+		Tags: "sidebar.tags",
+		Git: "sidebar.git",
+		Registry: "sidebar.registry",
+		Secrets: "sidebar.secrets",
+		"DNS Providers": "sidebar.dnsProviders",
+		"S3 Destinations": "sidebar.s3Destinations",
+		Certificates: "sidebar.certificates",
+		Notifications: "sidebar.notifications",
+		Billing: "sidebar.billing",
+		License: "sidebar.license",
+		SSO: "sidebar.sso",
+		Whitelabeling: "sidebar.whitelabeling",
+		Documentation: "sidebar.documentation",
+		Support: "sidebar.support",
+	};
+	return mapping[title] || title;
+}
+
+/**
  * Finds the active nav item based on the current pathname
  * @returns the active nav item with `SingleNavItem` type or undefined if none is active
  */
@@ -597,6 +639,7 @@ function SidebarLogo() {
 	>(null);
 	const [organizationSelectorOpen, setOrganizationSelectorOpen] =
 		useState(false);
+	const { t } = useTranslation();
 
 	useEffect(() => {
 		if (activeOrganization) {
@@ -933,6 +976,7 @@ export default function Page({ children }: Props) {
 		undefined,
 	);
 	const [isLoaded, setIsLoaded] = useState(false);
+	const { t } = useTranslation();
 
 	useEffect(() => {
 		const cookieValue = document.cookie
@@ -1005,7 +1049,7 @@ export default function Page({ children }: Props) {
 				</SidebarHeader>
 				<SidebarContent>
 					<SidebarGroup>
-						<SidebarGroupLabel>Home</SidebarGroupLabel>
+						<SidebarGroupLabel>{t("sidebar.home")}</SidebarGroupLabel>
 						<SidebarMenu>
 							{filteredHome.map((item) => {
 								const isSingle = item.isSingle !== false;
@@ -1014,6 +1058,7 @@ export default function Page({ children }: Props) {
 									: item.items.some((item) =>
 											isActiveRoute({ itemUrl: item.url, pathname }),
 										);
+								const translatedTitle = t(getMenuItemTranslationKey(item.title));
 
 								return (
 									<Collapsible
@@ -1026,7 +1071,7 @@ export default function Page({ children }: Props) {
 											{isSingle ? (
 												<SidebarMenuButton
 													asChild
-													tooltip={item.title}
+													tooltip={translatedTitle}
 													className={cn(isActive && "bg-border")}
 												>
 													<Link
@@ -1038,19 +1083,19 @@ export default function Page({ children }: Props) {
 																className={cn(isActive && "text-primary")}
 															/>
 														)}
-														<span>{item.title}</span>
+														<span>{translatedTitle}</span>
 													</Link>
 												</SidebarMenuButton>
 											) : (
 												<>
 													<CollapsibleTrigger asChild>
 														<SidebarMenuButton
-															tooltip={item.title}
+															tooltip={translatedTitle}
 															isActive={isActive}
 														>
 															{item.icon && <item.icon />}
 
-															<span>{item.title}</span>
+															<span>{translatedTitle}</span>
 															{item.items?.length && (
 																<ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
 															)}
@@ -1078,7 +1123,7 @@ export default function Page({ children }: Props) {
 																					/>
 																				</span>
 																			)}
-																			<span>{subItem.title}</span>
+																			<span>{t(getMenuItemTranslationKey(subItem.title))}</span>
 																		</Link>
 																	</SidebarMenuSubButton>
 																</SidebarMenuSubItem>
@@ -1094,7 +1139,7 @@ export default function Page({ children }: Props) {
 						</SidebarMenu>
 					</SidebarGroup>
 					<SidebarGroup>
-						<SidebarGroupLabel>Settings</SidebarGroupLabel>
+						<SidebarGroupLabel>{t("sidebar.settings")}</SidebarGroupLabel>
 						<SidebarMenu className="gap-1">
 							{filteredSettings.map((item) => {
 								const isSingle = item.isSingle !== false;
@@ -1103,6 +1148,7 @@ export default function Page({ children }: Props) {
 									: item.items.some((item) =>
 											isActiveRoute({ itemUrl: item.url, pathname }),
 										);
+								const translatedTitle = t(getMenuItemTranslationKey(item.title));
 
 								return (
 									<Collapsible
@@ -1115,7 +1161,7 @@ export default function Page({ children }: Props) {
 											{isSingle ? (
 												<SidebarMenuButton
 													asChild
-													tooltip={item.title}
+													tooltip={translatedTitle}
 													className={cn(isActive && "bg-border")}
 												>
 													<Link
@@ -1127,19 +1173,19 @@ export default function Page({ children }: Props) {
 																className={cn(isActive && "text-primary")}
 															/>
 														)}
-														<span>{item.title}</span>
+														<span>{translatedTitle}</span>
 													</Link>
 												</SidebarMenuButton>
 											) : (
 												<>
 													<CollapsibleTrigger asChild>
 														<SidebarMenuButton
-															tooltip={item.title}
+															tooltip={translatedTitle}
 															isActive={isActive}
 														>
 															{item.icon && <item.icon />}
 
-															<span>{item.title}</span>
+															<span>{translatedTitle}</span>
 															{item.items?.length && (
 																<ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
 															)}
@@ -1167,7 +1213,7 @@ export default function Page({ children }: Props) {
 																					/>
 																				</span>
 																			)}
-																			<span>{subItem.title}</span>
+																			<span>{t(getMenuItemTranslationKey(subItem.title))}</span>
 																		</Link>
 																	</SidebarMenuSubButton>
 																</SidebarMenuSubItem>
@@ -1183,7 +1229,7 @@ export default function Page({ children }: Props) {
 						</SidebarMenu>
 					</SidebarGroup>
 					<SidebarGroup className="group-data-[collapsible=icon]:hidden">
-						<SidebarGroupLabel>Extra</SidebarGroupLabel>
+						<SidebarGroupLabel>{t("sidebar.help")}</SidebarGroupLabel>
 						<SidebarMenu>
 							{help.map((item: ExternalLink) => (
 								<SidebarMenuItem key={item.name}>
@@ -1197,7 +1243,7 @@ export default function Page({ children }: Props) {
 											<span className="mr-2">
 												<item.icon className="h-4 w-4" />
 											</span>
-											<span>{item.name}</span>
+											<span>{t(getMenuItemTranslationKey(item.name))}</span>
 										</a>
 									</SidebarMenuButton>
 								</SidebarMenuItem>
@@ -1213,7 +1259,10 @@ export default function Page({ children }: Props) {
 							</SidebarMenuItem>
 						)}
 						<SidebarMenuItem>
-							<UserNav />
+							<div className="flex items-center gap-2">
+								<LanguageSwitcher />
+								<UserNav />
+							</div>
 						</SidebarMenuItem>
 						{whitelabeling?.footerText && (
 							<div className="px-3 text-xs text-muted-foreground text-center group-data-[collapsible=icon]:hidden">
